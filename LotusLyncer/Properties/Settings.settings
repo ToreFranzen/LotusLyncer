@@ -1,7 +1,24 @@
 ﻿<?xml version='1.0' encoding='utf-8'?>
-<SettingsFile xmlns="uri:settings" CurrentProfile="(Default)">
-  <Profiles>
-    <Profile Name="(Default)" />
-  </Profiles>
-  <Settings />
+<SettingsFile xmlns="http://schemas.microsoft.com/VisualStudio/2004/01/settings" CurrentProfile="(Default)" GeneratedClassNamespace="LotusLyncer.Properties" GeneratedClassName="Settings">
+  <Profiles />
+  <Settings>
+    <Setting Name="settingUpdateFrequencyTextBox" Type="System.String" Scope="User">
+      <Value Profile="(Default)">5</Value>
+    </Setting>
+    <Setting Name="settingMessageTextBox" Type="System.String" Scope="User">
+      <Value Profile="(Default)">In a Meeting</Value>
+    </Setting>
+    <Setting Name="settingLocationTextBox" Type="System.String" Scope="User">
+      <Value Profile="(Default)">Undisclosed Location</Value>
+    </Setting>
+    <Setting Name="settingNotesTitleCheckBox" Type="System.Boolean" Scope="User">
+      <Value Profile="(Default)">False</Value>
+    </Setting>
+    <Setting Name="settingNotesLocationCheckBox" Type="System.Boolean" Scope="User">
+      <Value Profile="(Default)">False</Value>
+    </Setting>
+    <Setting Name="settingAvailabilityComboBox" Type="Microsoft.Lync.Model.ContactAvailability" Scope="User">
+      <Value Profile="(Default)">None</Value>
+    </Setting>
+  </Settings>
 </SettingsFile>

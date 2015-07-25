@@ -38,6 +38,74 @@ namespace LotusLyncer
             InitializeComponent();
             //Save the current dispatcher to use it for changes in the user interface.
             dispatcher = Dispatcher.CurrentDispatcher;
+
+            
+        }
+
+        private void Window_Loaded(object sender, RoutedEventArgs e)
+        {
+            availabilityComboBox.Items.Add(ContactAvailability.Free);
+            availabilityComboBox.Items.Add(ContactAvailability.Busy);
+            availabilityComboBox.Items.Add(ContactAvailability.DoNotDisturb);
+            availabilityComboBox.Items.Add(ContactAvailability.Away);
+            availabilityComboBox.Items.Add(ContactAvailability.Offline);
+            availabilityComboBox.Items.Add(ContactAvailability.None);
+
+            availabilityComboBox.SelectedItem = ContactAvailability.Away;
+            updateFrequencyTextBox.Text = Properties.Settings.Default.settingUpdateFrequencyTextBox;
+            messageTextBox.Text = Properties.Settings.Default.settingMessageTextBox;
+            locationTextBox.Text = Properties.Settings.Default.settingLocationTextBox;
+            notesTitleCheckBox.IsChecked = Properties.Settings.Default.settingNotesTitleCheckBox;
+            notesLocationCheckBox.IsChecked = Properties.Settings.Default.settingNotesLocationCheckBox;
+            availabilityComboBox.SelectedItem = Properties.Settings.Default.settingAvailabilityComboBox;
+            buttonStopSync.IsEnabled = false;
+
+            //Listen for events of changes in the state of the client
+            try
+            {
+                lyncClient = LyncClient.GetClient();
+            }
+            catch (ClientNotFoundException clientNotFoundException)
+            {
+                Console.WriteLine(clientNotFoundException);
+                return;
+            }
+            catch (NotStartedByUserException notStartedByUserException)
+            {
+                Console.Out.WriteLine(notStartedByUserException);
+                return;
+            }
+            catch (LyncClientException lyncClientException)
+            {
+                Console.Out.WriteLine(lyncClientException);
+                return;
+            }
+            catch (SystemException systemException)
+            {
+                if (IsLyncException(systemException))
+                {
+                    // Log the exception thrown by the Lync Model API.
+                    Console.WriteLine("Error: " + systemException);
+                    return;
+                }
+                else
+                {
+                    // Rethrow the SystemException which did not come from the Lync Model API.
+                    throw;
+                }
+            }
+
+            notesCalendar = new NotesCalendar();
+            lyncClient.StateChanged += new EventHandler<ClientStateChangedEventArgs>(Client_StateChanged);
+
+            //Update the user interface
+            UpdateUserInterface(lyncClient.State);
+        }
+
+        private void Window_Closing_1(object sender, System.ComponentModel.CancelEventArgs e)
+        {
+            Properties.Settings.Default.settingUpdateFrequencyTextBox = updateFrequencyTextBox.Text;
+            Properties.Settings.Default.Save();
         }
 
         //TODO: Save original info and add a reset button
@@ -91,8 +159,8 @@ namespace LotusLyncer
                     }
                     if (ce.Starts > DateTime.Now)
                     {
-
                         //save info and setup timer to wait to change
+                        //if there is another meeting after this one then the loop should take care of it
                         await Task.Delay(updateFrequencyMinutes * 60 * 1000, tokenSource.Token);
                         continue;
                     }
@@ -126,56 +194,7 @@ namespace LotusLyncer
             ResetLyncStatus();            
         }
 
-        private void Window_Loaded(object sender, RoutedEventArgs e)
-        {
-            availabilityComboBox.Items.Add(ContactAvailability.Free);
-            availabilityComboBox.Items.Add(ContactAvailability.Busy);
-            availabilityComboBox.Items.Add(ContactAvailability.DoNotDisturb);
-            availabilityComboBox.Items.Add(ContactAvailability.Away);
-            availabilityComboBox.SelectedItem = ContactAvailability.Away;
-            buttonStopSync.IsEnabled = false;
-
-            //Listen for events of changes in the state of the client
-            try
-            {
-                lyncClient = LyncClient.GetClient();
-            }
-            catch (ClientNotFoundException clientNotFoundException)
-            {
-                Console.WriteLine(clientNotFoundException);
-                return;
-            }
-            catch (NotStartedByUserException notStartedByUserException)
-            {
-                Console.Out.WriteLine(notStartedByUserException);
-                return;
-            }
-            catch (LyncClientException lyncClientException)
-            {
-                Console.Out.WriteLine(lyncClientException);
-                return;
-            }
-            catch (SystemException systemException)
-            {
-                if (IsLyncException(systemException))
-                {
-                    // Log the exception thrown by the Lync Model API.
-                    Console.WriteLine("Error: " + systemException);
-                    return;
-                }
-                else
-                {
-                    // Rethrow the SystemException which did not come from the Lync Model API.
-                    throw;
-                }
-            }
-
-            notesCalendar = new NotesCalendar();
-            lyncClient.StateChanged += new EventHandler<ClientStateChangedEventArgs>(Client_StateChanged);
-
-            //Update the user interface
-            UpdateUserInterface(lyncClient.State);
-        }
+        
 
         /// <summary>
         /// Handler for the StateChanged event of the contact. Used to update the user interface with the new client state.
@@ -366,6 +385,8 @@ namespace LotusLyncer
                 }
             }
         }
+
+        
         
 
         
