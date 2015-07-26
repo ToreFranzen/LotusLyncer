@@ -37,9 +37,7 @@ namespace LotusLyncer
         {
             InitializeComponent();
             //Save the current dispatcher to use it for changes in the user interface.
-            dispatcher = Dispatcher.CurrentDispatcher;
-
-            
+            dispatcher = Dispatcher.CurrentDispatcher;            
         }
 
         private void Window_Loaded(object sender, RoutedEventArgs e)
@@ -65,34 +63,9 @@ namespace LotusLyncer
             {
                 lyncClient = LyncClient.GetClient();
             }
-            catch (ClientNotFoundException clientNotFoundException)
+            catch (Exception ex)
             {
-                Console.WriteLine(clientNotFoundException);
-                return;
-            }
-            catch (NotStartedByUserException notStartedByUserException)
-            {
-                Console.Out.WriteLine(notStartedByUserException);
-                return;
-            }
-            catch (LyncClientException lyncClientException)
-            {
-                Console.Out.WriteLine(lyncClientException);
-                return;
-            }
-            catch (SystemException systemException)
-            {
-                if (IsLyncException(systemException))
-                {
-                    // Log the exception thrown by the Lync Model API.
-                    Console.WriteLine("Error: " + systemException);
-                    return;
-                }
-                else
-                {
-                    // Rethrow the SystemException which did not come from the Lync Model API.
-                    throw;
-                }
+                statusTextBlock.Text = "ERROR: " + ex.Message;
             }
 
             notesCalendar = new NotesCalendar();
@@ -105,6 +78,11 @@ namespace LotusLyncer
         private void Window_Closing_1(object sender, System.ComponentModel.CancelEventArgs e)
         {
             Properties.Settings.Default.settingUpdateFrequencyTextBox = updateFrequencyTextBox.Text;
+            Properties.Settings.Default.settingMessageTextBox = messageTextBox.Text;
+            Properties.Settings.Default.settingLocationTextBox = locationTextBox.Text;
+            Properties.Settings.Default.settingNotesTitleCheckBox = notesTitleCheckBox.IsChecked.Value;
+            Properties.Settings.Default.settingNotesLocationCheckBox = notesLocationCheckBox.IsChecked.Value;
+            Properties.Settings.Default.settingAvailabilityComboBox = (ContactAvailability)availabilityComboBox.SelectedItem;
             Properties.Settings.Default.Save();
         }
 
@@ -157,6 +135,7 @@ namespace LotusLyncer
                         await Task.Delay(updateFrequencyMinutes * 60 * 1000, tokenSource.Token);
                         continue;
                     }
+
                     if (ce.Starts > DateTime.Now)
                     {
                         //save info and setup timer to wait to change
@@ -165,22 +144,23 @@ namespace LotusLyncer
                         continue;
                     }
 
-                    string message;
+                    string message = notesTitleCheckBox.IsChecked.Value ? ce.Title : messageTextBox.Text;
+                    string location = notesTitleCheckBox.IsChecked.Value ? ce.Location : locationTextBox.Text;
 
-                    if (notesTitleCheckBox.IsChecked.Value)
-                        message = "Meeting: " + ce.Title;
-                    else
-                        message = messageTextBox.Text;
-
-                    SetLyncStatus(message, ce.Location, (ContactAvailability)availabilityComboBox.SelectedItem);
+                    SetLyncStatus(message, location, (ContactAvailability)availabilityComboBox.SelectedItem);
 
                     //wait until the end of meeting to continue to check again
+                    //TODO: should this be the update freq? (def not if  > 15 min)
                     await Task.Delay(ce.Ends - DateTime.Now, tokenSource.Token);
                 }
             }
-            catch(Exception ex)
+            catch (TaskCanceledException)
             {
-                ;//print mini message
+                ;//don't do anything
+            }
+            catch (Exception ex)
+            {
+                statusTextBlock.Text = "ERROR: " + ex.Message;
             }
         }
 
@@ -193,9 +173,7 @@ namespace LotusLyncer
             passwordBox.IsEnabled = true;
             ResetLyncStatus();            
         }
-
         
-
         /// <summary>
         /// Handler for the StateChanged event of the contact. Used to update the user interface with the new client state.
         /// </summary>
@@ -206,7 +184,7 @@ namespace LotusLyncer
         }
 
         /// <summary>
-        /// Updates the user interface
+        /// Updates the user interface based on changes from lync
         /// </summary>
         /// <param name="currentState"></param>
         private void UpdateUserInterface(ClientState currentState)
@@ -221,7 +199,6 @@ namespace LotusLyncer
                 SetLocation();
                 SetPersonalNote();
             }
-
         }
 
         /// <summary>
@@ -235,22 +212,9 @@ namespace LotusLyncer
                 text = lyncClient.Self.Contact.GetContactInformation(ContactInformationType.PersonalNote)
                               as string;
             }
-            catch (LyncClientException e)
+            catch (Exception ex)
             {
-                Console.WriteLine(e);
-            }
-            catch (SystemException systemException)
-            {
-                if (IsLyncException(systemException))
-                {
-                    // Log the exception thrown by the Lync Model API.
-                    Console.WriteLine("Error: " + systemException);
-                }
-                else
-                {
-                    // Rethrow the SystemException which did not come from the Lync Model API.
-                    throw;
-                }
+                statusTextBlock.Text = "ERROR: " + ex.Message;
             }
 
             messageTextBlock.Text = text;
@@ -264,22 +228,9 @@ namespace LotusLyncer
                 text = lyncClient.Self.Contact.GetContactInformation(ContactInformationType.LocationName)
                               as string;
             }
-            catch (LyncClientException e)
+            catch (Exception ex)
             {
-                Console.WriteLine(e);
-            }
-            catch (SystemException systemException)
-            {
-                if (IsLyncException(systemException))
-                {
-                    // Log the exception thrown by the Lync Model API.
-                    Console.WriteLine("Error: " + systemException);
-                }
-                else
-                {
-                    // Rethrow the SystemException which did not come from the Lync Model API.
-                    throw;
-                }
+                statusTextBlock.Text = "ERROR: " + ex.Message;
             }
 
             locationTextBlock.Text = text;
@@ -308,28 +259,6 @@ namespace LotusLyncer
             }
         }
 
-
-        /// <summary>
-        /// Identify if a particular SystemException is one of the exceptions which may be thrown
-        /// by the Lync Model API.
-        /// </summary>
-        /// <param name="ex"></param>
-        /// <returns></returns>
-        private bool IsLyncException(SystemException ex)
-        {
-            return
-                ex is NotImplementedException ||
-                ex is ArgumentException ||
-                ex is NullReferenceException ||
-                ex is NotSupportedException ||
-                ex is ArgumentOutOfRangeException ||
-                ex is IndexOutOfRangeException ||
-                ex is InvalidOperationException ||
-                ex is TypeLoadException ||
-                ex is TypeInitializationException ||
-                ex is InvalidComObjectException ||
-                ex is InvalidCastException;
-        }
 
         /// <summary>
         /// Callback invoked when Self.BeginPublishContactInformation is completed
@@ -367,28 +296,10 @@ namespace LotusLyncer
             {
                 lyncClient.Self.BeginPublishContactInformation(newInformation, PublishContactInformationCallback, null);
             }
-            catch (LyncClientException lyncClientException)
+            catch (Exception ex)
             {
-                Console.WriteLine(lyncClientException);
-            }
-            catch (SystemException systemException)
-            {
-                if (IsLyncException(systemException))
-                {
-                    // Log the exception thrown by the Lync Model API.
-                    Console.WriteLine("Error: " + systemException);
-                }
-                else
-                {
-                    // Rethrow the SystemException which did not come from the Lync Model API.
-                    throw;
-                }
+                statusTextBlock.Text = "ERROR: " + ex.Message;
             }
         }
-
-        
-        
-
-        
     }
 }
