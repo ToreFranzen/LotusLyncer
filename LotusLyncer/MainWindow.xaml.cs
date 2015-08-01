@@ -16,6 +16,9 @@ using System.Windows.Threading;
 using Microsoft.Lync.Model;
 using System.Runtime.InteropServices;
 using System.Threading;
+using System.Security;
+
+//TODO: Save password safely
 
 namespace LotusLyncer
 {
@@ -33,11 +36,45 @@ namespace LotusLyncer
         private CancellationTokenSource tokenSource;
         private int updateFrequencyMinutes;
 
+        private System.Windows.Forms.NotifyIcon MyNotifyIcon;
         public MainWindow()
         {
             InitializeComponent();
             //Save the current dispatcher to use it for changes in the user interface.
-            dispatcher = Dispatcher.CurrentDispatcher;            
+            dispatcher = Dispatcher.CurrentDispatcher;
+            MyNotifyIcon = new System.Windows.Forms.NotifyIcon();
+            MyNotifyIcon.Icon = new System.Drawing.Icon(
+                            @"C:\Penguin_1.ico");
+            MyNotifyIcon.MouseDoubleClick +=
+                new System.Windows.Forms.MouseEventHandler
+                    (MyNotifyIcon_MouseDoubleClick);
+            //TODO: add baloon for hovering over icon
+            //MyNotifyIcon.MouseMove
+
+        }
+
+
+        void MyNotifyIcon_MouseDoubleClick(object sender, System.Windows.Forms.MouseEventArgs e)
+        {
+            this.WindowState = WindowState.Normal;
+        }
+
+        private void Window_StateChanged(object sender, EventArgs e)
+        {
+            if (this.WindowState == WindowState.Minimized)
+            {
+                this.ShowInTaskbar = false;
+                MyNotifyIcon.Visible = true;
+                MyNotifyIcon.BalloonTipTitle = "Minimize Sucessful";
+                MyNotifyIcon.BalloonTipText = "Minimized the app ";
+                MyNotifyIcon.ShowBalloonTip(400);
+                
+            }
+            else if (this.WindowState == WindowState.Normal)
+            {
+                MyNotifyIcon.Visible = false;
+                this.ShowInTaskbar = true;
+            }
         }
 
         private void Window_Loaded(object sender, RoutedEventArgs e)
@@ -57,6 +94,8 @@ namespace LotusLyncer
             notesLocationCheckBox.IsChecked = Properties.Settings.Default.settingNotesLocationCheckBox;
             availabilityComboBox.SelectedItem = Properties.Settings.Default.settingAvailabilityComboBox;
             buttonStopSync.IsEnabled = false;
+            SecureString tempPassword = PasswordManager.DecryptString(Properties.Settings.Default.settingNotesPassword);
+            passwordBox.Password = PasswordManager.ToInsecureString(tempPassword);
 
             //Listen for events of changes in the state of the client
             try
@@ -83,11 +122,11 @@ namespace LotusLyncer
             Properties.Settings.Default.settingNotesTitleCheckBox = notesTitleCheckBox.IsChecked.Value;
             Properties.Settings.Default.settingNotesLocationCheckBox = notesLocationCheckBox.IsChecked.Value;
             Properties.Settings.Default.settingAvailabilityComboBox = (ContactAvailability)availabilityComboBox.SelectedItem;
+            Properties.Settings.Default.settingNotesPassword = PasswordManager.EncryptString(passwordBox.SecurePassword);
             Properties.Settings.Default.Save();
         }
 
-        //TODO: Save original info and add a reset button
-        //TODO: create timer when meeting ends or starts to kick off sync
+        //TODO: Save original info and add a reset button        
         private async void buttonStartSync_Click(object sender, RoutedEventArgs e)
         {
             //this.Dispatcher.BeginInvoke(new Action(this.LoadList), DispatcherPriority.Background);
@@ -103,9 +142,14 @@ namespace LotusLyncer
             originalLocation = locationTextBlock.Text;
 
             updateFrequencyMinutes = Convert.ToInt32(updateFrequencyTextBox.Text);
+            if (updateFrequencyMinutes < 1)
+            {
+                statusTextBlock.Text = "ERROR: Update frequency needs to be 1 minute or greater.";
+                ResetUIControls();
+                return;
+            }
 
-            await DoSync();
-            
+            await DoSync();            
         }
         
         private async Task DoSync()
@@ -120,47 +164,61 @@ namespace LotusLyncer
                         break;
                     }
 
+                    statusTextBlock.Text = "Retrieving Lotus Notes Calendar Entries...";
                     var notesTask = Task<CalendarEvent>.Factory.StartNew(() => notesCalendar.GetCurrentMeeting(notesPassword), tokenSource.Token);
                     await notesTask;
                     ce = notesTask.Result;
 
-                    if (tokenSource.IsCancellationRequested)
-                    {
-                        break;
-                    }
-
+                    DateTime nextCheck = DateTime.Now.Add(TimeSpan.FromMinutes(updateFrequencyMinutes));
                     if (ce == null)
                     {
-                        //check again in time specified
+                        //check again in time specified                       
+                        statusTextBlock.Text = "No Meetings Found, Checking Again at " + nextCheck.ToLocalTime();
                         await Task.Delay(updateFrequencyMinutes * 60 * 1000, tokenSource.Token);
                         continue;
                     }
 
                     if (ce.Starts > DateTime.Now)
                     {
-                        //save info and setup timer to wait to change
-                        //if there is another meeting after this one then the loop should take care of it
-                        await Task.Delay(updateFrequencyMinutes * 60 * 1000, tokenSource.Token);
-                        continue;
+                        TimeSpan startTimeDiff = ce.Starts.Subtract(DateTime.Now);
+                        if (startTimeDiff.Minutes > updateFrequencyMinutes)
+                        {
+                            //wait then check again for changes
+                            statusTextBlock.Text = "Meeting Found ("+ce.Title+"), But Checking Again at " + nextCheck.ToLocalTime() + " In Case of Updates";
+                            await Task.Delay(updateFrequencyMinutes * 60 * 1000, tokenSource.Token);
+                            continue;
+                        }
+                                               
+                        //wait the short amount of time and then update, although this isn't optimal
+                        //for long refresh delays
+                        DateTime shorterCheck = DateTime.Now.Add(startTimeDiff);
+                        statusTextBlock.Text = "Meeting Found(" + ce.Title + "), Updating Status at " + shorterCheck.ToLocalTime();
+                        await Task.Delay(startTimeDiff);                        
+                    
                     }
+                    //else, the meeting is right now
 
                     string message = notesTitleCheckBox.IsChecked.Value ? ce.Title : messageTextBox.Text;
-                    string location = notesTitleCheckBox.IsChecked.Value ? ce.Location : locationTextBox.Text;
-
+                    string location = notesLocationCheckBox.IsChecked.Value ? ce.Location : locationTextBox.Text;
                     SetLyncStatus(message, location, (ContactAvailability)availabilityComboBox.SelectedItem);
 
                     //wait until the end of meeting to continue to check again
-                    //TODO: should this be the update freq? (def not if  > 15 min)
+                    statusTextBlock.Text = "Set Status, Waiting Until " + ce.Ends + " To Check Again";
                     await Task.Delay(ce.Ends - DateTime.Now, tokenSource.Token);
+                    
+                    //Reset status after meeting
+                    SetLyncStatus(originalMessage, originalLocation, ContactAvailability.None);
                 }
             }
             catch (TaskCanceledException)
             {
-                ;//don't do anything
+                statusTextBlock.Text = "Syncing Stopped";
+                //don't do anything
             }
             catch (Exception ex)
             {
                 statusTextBlock.Text = "ERROR: " + ex.Message;
+                ResetUIControls(); 
             }
         }
 
@@ -168,11 +226,16 @@ namespace LotusLyncer
         {
             //kill running timer
             tokenSource.Cancel();
+            ResetUIControls();           
+        }
+
+        private void ResetUIControls()
+        {
             buttonStopSync.IsEnabled = false;
             buttonStartSync.IsEnabled = true;
             passwordBox.IsEnabled = true;
-            ResetLyncStatus();            
-        }
+            ResetLyncStatus();
+        }        
         
         /// <summary>
         /// Handler for the StateChanged event of the contact. Used to update the user interface with the new client state.

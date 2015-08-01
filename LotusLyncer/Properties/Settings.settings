@@ -20,5 +20,8 @@
     <Setting Name="settingAvailabilityComboBox" Type="Microsoft.Lync.Model.ContactAvailability" Scope="User">
       <Value Profile="(Default)">None</Value>
     </Setting>
+    <Setting Name="settingNotesPassword" Type="System.String" Scope="User">
+      <Value Profile="(Default)" />
+    </Setting>
   </Settings>
 </SettingsFile>
