@@ -1,9 +1,11 @@
 ﻿<Window
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        xmlns:d="http://schemas.microsoft.com/expression/blend/2008" xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" mc:Ignorable="d" x:Class="LotusLyncer.MainWindow"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008" 
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" mc:Ignorable="d" x:Class="LotusLyncer.MainWindow"
+        xmlns:tb="http://www.hardcodet.net/taskbar"
         Title="MainWindow" Height="446.604" Width="627.642" Loaded="Window_Loaded" Closing="Window_Closing_1" StateChanged="Window_StateChanged">
-    <Grid>
+    <Grid MouseLeftButtonUp="TaskbarIcon_MouseClick">
         <Grid.RowDefinitions>
             <RowDefinition Height="46*"/>
             <RowDefinition Height="47*"/>
@@ -29,21 +31,21 @@
         <TextBlock TextWrapping="Wrap"  x:Name="clientStateTextBlock" Margin="10,15,10,7" Text="Client State Loading..." VerticalAlignment="Center" Grid.Column="1" Grid.Row="5" Height="20"/>
         <TextBlock TextWrapping="Wrap" Text="Meeting Message:" VerticalAlignment="Center" Margin="0,15,10,11" HorizontalAlignment="Right" Grid.Row="2" Height="20" Width="97"/>
         <TextBlock TextWrapping="Wrap" Text="Availability During Meeting:" VerticalAlignment="Center" Margin="0,12,15,18" HorizontalAlignment="Right" Grid.Row="4" Height="16" Width="147"/>
-        <ComboBox Margin="10,16,10,10" VerticalAlignment="Center" x:Name="availabilityComboBox" Grid.Column="1" Grid.Row="4" Height="20"/>
+        <ComboBox Margin="10,16,10,10" VerticalAlignment="Center" x:Name="availabilityComboBox" Grid.Column="1" Grid.Row="4" Height="20" SelectionChanged="availabilityComboBox_SelectionChanged"/>
         <Button x:Name="buttonStartSync" Content="Start Sync" HorizontalAlignment="Left" VerticalAlignment="Center" Width="75" Click="buttonStartSync_Click" Margin="10,7,0,11" Grid.Column="1" Grid.Row="8" Height="22"/>
-        <TextBox x:Name="messageTextBox" TextWrapping="Wrap" VerticalAlignment="Center" Margin="10,11,10,13" Text="In a Meeting" Grid.Column="1" Grid.Row="2" Height="22"/>
+        <TextBox x:Name="messageTextBox" TextWrapping="Wrap" VerticalAlignment="Center" Margin="10,11,10,13" Text="In a Meeting" Grid.Column="1" Grid.Row="2" Height="22" TextChanged="messageTextBox_TextChanged"/>
         <TextBlock TextWrapping="Wrap" Text="Current Location:" VerticalAlignment="Center" Margin="0,11,16,9" HorizontalAlignment="Right" Grid.Row="7" Height="16" Width="91"/>
         <Separator HorizontalAlignment="Left" Height="1" Margin="0,0,0,39" Grid.Row="5" VerticalAlignment="Bottom" Width="620" Grid.ColumnSpan="3" />
-        <TextBlock x:Name="locationTextBlock" Grid.Column="1" HorizontalAlignment="Left" Margin="10,10,0,0" Grid.Row="7" TextWrapping="Wrap" Text="Location Loading..." VerticalAlignment="Top" Height="16" Width="99"/>
+        <TextBlock x:Name="locationTextBlock" Grid.Column="1" HorizontalAlignment="Left" Margin="10,10,0,0" Grid.Row="7" TextWrapping="Wrap" Text="Location Loading..." VerticalAlignment="Top" Height="16" Width="407" Grid.ColumnSpan="2"/>
         <Button x:Name="buttonStopSync" Content="Stop Sync" HorizontalAlignment="Left" VerticalAlignment="Center" Width="75" Click="buttonStopSync_Click" Margin="137,7,0,11" Grid.Column="1" Grid.Row="8" Height="22"/>
-        <CheckBox x:Name="notesTitleCheckBox" Content="Use Lotus Meeting Title" Grid.Column="2" HorizontalAlignment="Left" Margin="10,13,0,0" Grid.Row="2" VerticalAlignment="Top" Checked="notesTitleCheckBox_Checked" Unchecked="notesTitleCheckBox_Unchecked" Height="16" Width="145"/>
+        <CheckBox x:Name="notesTitleCheckBox" Content="Use Lotus Meeting Title" Grid.Column="2" HorizontalAlignment="Left" Margin="10,13,0,0" Grid.Row="2" VerticalAlignment="Top" Checked="notesTitleCheckBox_Changed" Unchecked="notesTitleCheckBox_Changed" Height="16" Width="145"/>
         <TextBlock TextWrapping="Wrap" Text="Current Message:" VerticalAlignment="Center" Margin="0,14,14,14" HorizontalAlignment="Right" Grid.Row="6" Height="16" Width="109"/>
-        <TextBlock x:Name="messageTextBlock" Grid.Column="1" HorizontalAlignment="Left" Margin="10,10,0,0" Grid.Row="6" TextWrapping="Wrap" Text="Meessage Loading..." VerticalAlignment="Top" Height="16" Width="107"/>
+        <TextBlock x:Name="messageTextBlock" Grid.Column="1" HorizontalAlignment="Left" Margin="10,10,0,0" Grid.Row="6" TextWrapping="Wrap" Text="Meessage Loading..." VerticalAlignment="Top" Height="16" Width="407" Grid.ColumnSpan="2"/>
         <TextBlock TextWrapping="Wrap" Text="Meeting Location:" VerticalAlignment="Center" Margin="0,11,16,16" HorizontalAlignment="Right" Grid.Row="3" Height="20" Width="97"/>
-        <TextBox x:Name="locationTextBox" TextWrapping="Wrap" VerticalAlignment="Center" Margin="10,9,10,16" Text="Undisclosed Location" Grid.Column="1" Grid.Row="3" Height="22"/>
-        <CheckBox x:Name="notesLocationCheckBox" Content="Use Lotus Meeting Location" Grid.Column="2" HorizontalAlignment="Left" Margin="10,14,0,0" Grid.Row="3" VerticalAlignment="Top" Checked="notesTitleCheckBox_Checked" Unchecked="notesTitleCheckBox_Unchecked" Height="16" Width="167"/>
+        <TextBox x:Name="locationTextBox" TextWrapping="Wrap" VerticalAlignment="Center" Margin="10,9,10,16" Text="Undisclosed Location" Grid.Column="1" Grid.Row="3" Height="22" TextChanged="locationTextBox_TextChanged"/>
+        <CheckBox x:Name="notesLocationCheckBox" Content="Use Lotus Meeting Location" Grid.Column="2" HorizontalAlignment="Left" Margin="10,14,0,0" Grid.Row="3" VerticalAlignment="Top" Checked="notesLocationCheckBox_Changed" Unchecked="notesLocationCheckBox_Changed" Height="16" Width="167"/>
         <TextBlock Grid.Column="2" HorizontalAlignment="Left" Margin="10,14,0,0" Grid.Row="4" TextWrapping="Wrap" Text="(None is Equivalent to Resetting)" VerticalAlignment="Top" Width="183" Height="16"/>
-        <TextBlock x:Name="statusTextBlock"  HorizontalAlignment="Left" Margin="0,0,0,0" Grid.Row="9" TextWrapping="Wrap" Text="Status..." VerticalAlignment="Top" Grid.ColumnSpan="3" Background="#FF7D7D7D" Width="620"/>
-
+        <TextBlock x:Name="statusTextBlock"  HorizontalAlignment="Left" Margin="0,0,0,0" Grid.Row="9" TextWrapping="Wrap" Text="Status..." VerticalAlignment="Top" Grid.ColumnSpan="3" Background="#FFC3C2C2" Width="620"/>
+        <tb:TaskbarIcon IconSource="lotuslyncer_icon.ico" ToolTipText="Click to Open Lotus Lyncer"  MenuActivation="LeftOrRightClick"   TrayLeftMouseUp="TaskbarIcon_MouseClick" TrayRightMouseUp="TaskbarIcon_MouseClick"/>
     </Grid>
 </Window>

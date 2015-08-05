@@ -17,11 +17,12 @@ using Microsoft.Lync.Model;
 using System.Runtime.InteropServices;
 using System.Threading;
 using System.Security;
-
-//TODO: Save password safely
-
+using Hardcodet.Wpf.TaskbarNotification;
 namespace LotusLyncer
 {
+    //TODO: Have option to allow meeting location go into message (so people don't have to look at the extra contact info)
+    //Provide option of where they can put the location (location, message or nowhere)
+
     /// <summary>
     /// Interaction logic for MainWindow.xaml
     /// </summary>
@@ -35,44 +36,29 @@ namespace LotusLyncer
         private string originalLocation;
         private CancellationTokenSource tokenSource;
         private int updateFrequencyMinutes;
+        private CalendarEvent currentCalendarEvent = null;        
+        private bool syncingStatus = false;
 
-        private System.Windows.Forms.NotifyIcon MyNotifyIcon;
+        /// <summary>
+        /// Only Update if we are syncing and have a valid calendar event
+        /// </summary>
+        private bool CanUpdateStatus { get { return syncingStatus && currentCalendarEvent != null; } }
+
         public MainWindow()
         {
             InitializeComponent();
             //Save the current dispatcher to use it for changes in the user interface.
             dispatcher = Dispatcher.CurrentDispatcher;
-            MyNotifyIcon = new System.Windows.Forms.NotifyIcon();
-            MyNotifyIcon.Icon = new System.Drawing.Icon(
-                            @"C:\Penguin_1.ico");
-            MyNotifyIcon.MouseDoubleClick +=
-                new System.Windows.Forms.MouseEventHandler
-                    (MyNotifyIcon_MouseDoubleClick);
-            //TODO: add baloon for hovering over icon
-            //MyNotifyIcon.MouseMove
-
-        }
-
-
-        void MyNotifyIcon_MouseDoubleClick(object sender, System.Windows.Forms.MouseEventArgs e)
-        {
-            this.WindowState = WindowState.Normal;
         }
 
         private void Window_StateChanged(object sender, EventArgs e)
         {
             if (this.WindowState == WindowState.Minimized)
             {
-                this.ShowInTaskbar = false;
-                MyNotifyIcon.Visible = true;
-                MyNotifyIcon.BalloonTipTitle = "Minimize Sucessful";
-                MyNotifyIcon.BalloonTipText = "Minimized the app ";
-                MyNotifyIcon.ShowBalloonTip(400);
-                
+                this.ShowInTaskbar = false;                
             }
             else if (this.WindowState == WindowState.Normal)
             {
-                MyNotifyIcon.Visible = false;
                 this.ShowInTaskbar = true;
             }
         }
@@ -126,21 +112,19 @@ namespace LotusLyncer
             Properties.Settings.Default.Save();
         }
 
-        //TODO: Save original info and add a reset button        
         private async void buttonStartSync_Click(object sender, RoutedEventArgs e)
         {
-            //this.Dispatcher.BeginInvoke(new Action(this.LoadList), DispatcherPriority.Background);
-            tokenSource = new CancellationTokenSource(); 
+            tokenSource = new CancellationTokenSource();
 
+            syncingStatus = true;
             buttonStopSync.IsEnabled = true;
             buttonStartSync.IsEnabled = false;
             passwordBox.IsEnabled = false;
-
             notesPassword = passwordBox.Password;
-
             originalMessage = messageTextBlock.Text;
             originalLocation = locationTextBlock.Text;
 
+            updateFrequencyTextBox.IsEnabled = false;
             updateFrequencyMinutes = Convert.ToInt32(updateFrequencyTextBox.Text);
             if (updateFrequencyMinutes < 1)
             {
@@ -184,7 +168,7 @@ namespace LotusLyncer
                         if (startTimeDiff.Minutes > updateFrequencyMinutes)
                         {
                             //wait then check again for changes
-                            statusTextBlock.Text = "Meeting Found ("+ce.Title+"), But Checking Again at " + nextCheck.ToLocalTime() + " In Case of Updates";
+                            statusTextBlock.Text = "Meeting Found, But Checking Again at " + nextCheck.ToLocalTime().ToShortTimeString() + " In Case of Updates ("+ce.Title+")";
                             await Task.Delay(updateFrequencyMinutes * 60 * 1000, tokenSource.Token);
                             continue;
                         }
@@ -192,7 +176,7 @@ namespace LotusLyncer
                         //wait the short amount of time and then update, although this isn't optimal
                         //for long refresh delays
                         DateTime shorterCheck = DateTime.Now.Add(startTimeDiff);
-                        statusTextBlock.Text = "Meeting Found(" + ce.Title + "), Updating Status at " + shorterCheck.ToLocalTime();
+                        statusTextBlock.Text = "Meeting Found, Updating Status at " + shorterCheck.ToLocalTime().ToShortTimeString() + " (" + ce.Title + ")";
                         await Task.Delay(startTimeDiff);                        
                     
                     }
@@ -203,8 +187,11 @@ namespace LotusLyncer
                     SetLyncStatus(message, location, (ContactAvailability)availabilityComboBox.SelectedItem);
 
                     //wait until the end of meeting to continue to check again
-                    statusTextBlock.Text = "Set Status, Waiting Until " + ce.Ends + " To Check Again";
+                    statusTextBlock.Text = "Status is Set, Waiting Until " + ce.Ends + " To Check Again";
+                    currentCalendarEvent = ce;
                     await Task.Delay(ce.Ends - DateTime.Now, tokenSource.Token);
+
+                    currentCalendarEvent = null;
                     
                     //Reset status after meeting
                     SetLyncStatus(originalMessage, originalLocation, ContactAvailability.None);
@@ -225,6 +212,8 @@ namespace LotusLyncer
         private void buttonStopSync_Click(object sender, RoutedEventArgs e)
         {
             //kill running timer
+            currentCalendarEvent = null;
+            syncingStatus = false;
             tokenSource.Cancel();
             ResetUIControls();           
         }
@@ -234,9 +223,11 @@ namespace LotusLyncer
             buttonStopSync.IsEnabled = false;
             buttonStartSync.IsEnabled = true;
             passwordBox.IsEnabled = true;
+            updateFrequencyTextBox.IsEnabled = true;
             ResetLyncStatus();
-        }        
-        
+        }
+
+        #region Lync Events
         /// <summary>
         /// Handler for the StateChanged event of the contact. Used to update the user interface with the new client state.
         /// </summary>
@@ -247,7 +238,7 @@ namespace LotusLyncer
         }
 
         /// <summary>
-        /// Updates the user interface based on changes from lync
+        /// Updates the user interface based on changes from lync, ie Lync => App update
         /// </summary>
         /// <param name="currentState"></param>
         private void UpdateUserInterface(ClientState currentState)
@@ -266,6 +257,7 @@ namespace LotusLyncer
 
         /// <summary>
         /// Gets the contact's personal note from Lync and updates the corresponding element in the user interface
+        /// Lync => App
         /// </summary>
         private void SetPersonalNote()
         {
@@ -283,6 +275,9 @@ namespace LotusLyncer
             messageTextBlock.Text = text;
         }
 
+        /// <summary>
+        /// Gets the location from Lync and sets in UI, Lync => App
+        /// </summary>
         private void SetLocation()
         {
             string text = string.Empty;
@@ -300,7 +295,7 @@ namespace LotusLyncer
         }
 
         /// <summary>
-        /// Handler for the ContactInformationChanged event of the contact. Used to update the contact's information in the user interface.
+        /// Updates UI when there is a change in Lync, Lync => App
         /// </summary>
         private void SelfContact_ContactInformationChanged(object sender, ContactInformationChangedEventArgs e)
         {
@@ -323,30 +318,25 @@ namespace LotusLyncer
         }
 
 
+        
+        #endregion
+
+
+        #region Set Lync Status
         /// <summary>
-        /// Callback invoked when Self.BeginPublishContactInformation is completed
+        /// Reset Lync with original info before syncing
         /// </summary>
-        /// <param name="result">The status of the asynchronous operation</param>
-        private void PublishContactInformationCallback(IAsyncResult result)
-        {
-            lyncClient.Self.EndPublishContactInformation(result);
-        }
-
-        private void notesTitleCheckBox_Checked(object sender, RoutedEventArgs e)
-        {
-            messageTextBox.IsEnabled = false;
-        }
-
-        private void notesTitleCheckBox_Unchecked(object sender, RoutedEventArgs e)
-        {
-            messageTextBox.IsEnabled = true;
-        }
-
         private void ResetLyncStatus()
         {
             SetLyncStatus(originalMessage, originalLocation, ContactAvailability.None);
         }
 
+        /// <summary>
+        /// Update Lync status with new info, App => Lync
+        /// </summary>
+        /// <param name="message"></param>
+        /// <param name="location"></param>
+        /// <param name="availability"></param>
         private void SetLyncStatus(string message, string location, ContactAvailability availability)
         {
             Dictionary<PublishableContactInformationType, object> newInformation = new Dictionary<PublishableContactInformationType, object>();
@@ -364,5 +354,150 @@ namespace LotusLyncer
                 statusTextBlock.Text = "ERROR: " + ex.Message;
             }
         }
+
+        /// <summary>
+        /// Only updates the Lync Message, App => Lync
+        /// </summary>
+        /// <param name="message"></param>
+        private void SetLyncMessage(string message)
+        {
+            Dictionary<PublishableContactInformationType, object> newInformation = new Dictionary<PublishableContactInformationType, object>();
+            newInformation.Add(PublishableContactInformationType.PersonalNote, message);
+
+            try
+            {
+                lyncClient.Self.BeginPublishContactInformation(newInformation, PublishContactInformationCallback, null);
+            }
+            catch (Exception ex)
+            {
+                statusTextBlock.Text = "ERROR: " + ex.Message;
+            }
+        }
+
+        /// <summary>
+        /// Only updates the Lync Location, App => Lync
+        /// </summary>
+        /// <param name="location"></param>
+        private void SetLyncLocation(string location)
+        {
+            Dictionary<PublishableContactInformationType, object> newInformation = new Dictionary<PublishableContactInformationType, object>();
+            newInformation.Add(PublishableContactInformationType.LocationName, location);
+
+            try
+            {
+                lyncClient.Self.BeginPublishContactInformation(newInformation, PublishContactInformationCallback, null);
+            }
+            catch (Exception ex)
+            {
+                statusTextBlock.Text = "ERROR: " + ex.Message;
+            }
+        }
+
+        private void SetLyncAvailability(ContactAvailability availability)
+        {
+            Dictionary<PublishableContactInformationType, object> newInformation = new Dictionary<PublishableContactInformationType, object>();
+            newInformation.Add(PublishableContactInformationType.Availability, availability);
+
+            try
+            {
+                lyncClient.Self.BeginPublishContactInformation(newInformation, PublishContactInformationCallback, null);
+            }
+            catch (Exception ex)
+            {
+                statusTextBlock.Text = "ERROR: " + ex.Message;
+            }
+        }
+
+        /// <summary>
+        /// Callback invoked when Self.BeginPublishContactInformation is completed
+        /// </summary>
+        /// <param name="result">The status of the asynchronous operation</param>
+        private void PublishContactInformationCallback(IAsyncResult result)
+        {
+            lyncClient.Self.EndPublishContactInformation(result);
+        }
+        #endregion
+
+        //TODO: add event listener for location and message text boxes, and delay time
+
+        #region UI Control Change Event Listeners
+        private void notesTitleCheckBox_Changed(object sender, RoutedEventArgs e)
+        {
+            if (((CheckBox)sender).IsChecked.Value)
+            {
+                messageTextBox.IsEnabled = false;
+                if (CanUpdateStatus)
+                {
+                    SetLyncMessage(currentCalendarEvent.Title);
+                }
+            }
+            else
+            {
+                messageTextBox.IsEnabled = true;
+                if (CanUpdateStatus)
+                {
+                    SetLyncMessage(messageTextBox.Text);
+                }
+            }            
+        }
+        
+
+        private void notesLocationCheckBox_Changed(object sender, RoutedEventArgs e)
+        {            
+            if (((CheckBox)sender).IsChecked.Value)
+            {
+                locationTextBox.IsEnabled = false;
+                if (CanUpdateStatus)
+                {
+                    SetLyncLocation(currentCalendarEvent.Location);
+                }
+            }
+            else
+            {
+                locationTextBox.IsEnabled = true;
+                if (CanUpdateStatus)
+                {
+                    SetLyncLocation(locationTextBox.Text);
+                }
+            }
+        }
+
+        private void messageTextBox_TextChanged(object sender, TextChangedEventArgs e)
+        {
+            if (!CanUpdateStatus) return;
+
+            if (!notesTitleCheckBox.IsChecked.Value )
+            {
+                SetLyncMessage(messageTextBox.Text);
+            }
+        }
+
+        private void locationTextBox_TextChanged(object sender, TextChangedEventArgs e)
+        {
+            if (!CanUpdateStatus) return;
+
+            if (!notesLocationCheckBox.IsChecked.Value)
+            {
+                SetLyncLocation(locationTextBox.Text);
+            }
+        }
+
+        private void availabilityComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (!CanUpdateStatus) return;
+            SetLyncAvailability((ContactAvailability)availabilityComboBox.SelectedItem);
+        }
+        #endregion
+
+        private void TaskbarIcon_MouseClick(object sender, MouseButtonEventArgs e)
+        {
+            this.WindowState = WindowState.Normal;
+        }
+
+        private void TaskbarIcon_MouseClick(object sender, RoutedEventArgs e)
+        {
+            this.WindowState = WindowState.Normal;
+        }
+
     }
 }
