@@ -20,8 +20,8 @@ using System.Security;
 using Hardcodet.Wpf.TaskbarNotification;
 namespace LotusLyncer
 {
-    //TODO: Have option to allow meeting location go into message (so people don't have to look at the extra contact info)
-    //Provide option of where they can put the location (location, message or nowhere)
+    //TODO: Also check if meeting gets cancelled while in meeting => perform periodic check and compare against current cal event
+    //TODO: Fix No meeting picked up if you are in a meeting when syncing starts
 
     /// <summary>
     /// Interaction logic for MainWindow.xaml
@@ -33,16 +33,22 @@ namespace LotusLyncer
         private NotesCalendar notesCalendar;
         private string notesPassword;
         private string originalMessage;
-        private string originalLocation;
         private CancellationTokenSource tokenSource;
         private int updateFrequencyMinutes;
         private CalendarEvent currentCalendarEvent = null;        
-        private bool syncingStatus = false;
+        private bool currentlySyncing = false;
 
         /// <summary>
         /// Only Update if we are syncing and have a valid calendar event
         /// </summary>
-        private bool CanUpdateStatus { get { return syncingStatus && currentCalendarEvent != null; } }
+        private bool InMeeting()
+        {
+            if (currentCalendarEvent == null)
+                return false;
+            if (currentlySyncing && currentCalendarEvent.Starts <= DateTime.Now)
+                return true;
+            return false;
+        }        
 
         public MainWindow()
         {
@@ -116,23 +122,31 @@ namespace LotusLyncer
         {
             tokenSource = new CancellationTokenSource();
 
-            syncingStatus = true;
+            currentlySyncing = true;
             buttonStopSync.IsEnabled = true;
             buttonStartSync.IsEnabled = false;
             passwordBox.IsEnabled = false;
             notesPassword = passwordBox.Password;
             originalMessage = messageTextBlock.Text;
-            originalLocation = locationTextBlock.Text;
-
             updateFrequencyTextBox.IsEnabled = false;
-            updateFrequencyMinutes = Convert.ToInt32(updateFrequencyTextBox.Text);
-            if (updateFrequencyMinutes < 1)
+
+            try
             {
-                statusTextBlock.Text = "ERROR: Update frequency needs to be 1 minute or greater.";
+                updateFrequencyMinutes = Convert.ToInt32(updateFrequencyTextBox.Text);
+                if (updateFrequencyMinutes < 1)
+                {
+                    statusTextBlock.Text = "ERROR: Update frequency needs to be 1 minute or greater.";
+                    ResetUIControls();
+                    return;
+                }
+            }
+            catch (Exception ex)
+            {
+                statusTextBlock.Text = "ERROR: Update frequency needs to be a valid number.";
                 ResetUIControls();
                 return;
             }
-
+            
             await DoSync();            
         }
         
@@ -177,30 +191,28 @@ namespace LotusLyncer
                         //for long refresh delays
                         DateTime shorterCheck = DateTime.Now.Add(startTimeDiff);
                         statusTextBlock.Text = "Meeting Found, Updating Status at " + shorterCheck.ToLocalTime().ToShortTimeString() + " (" + ce.Title + ")";
-                        await Task.Delay(startTimeDiff);                        
+                        await Task.Delay(startTimeDiff);
+                        continue;
                     
                     }
                     //else, the meeting is right now
-
-                    string message = notesTitleCheckBox.IsChecked.Value ? ce.Title : messageTextBox.Text;
-                    string location = notesLocationCheckBox.IsChecked.Value ? ce.Location : locationTextBox.Text;
-                    SetLyncStatus(message, location, (ContactAvailability)availabilityComboBox.SelectedItem);
+                    currentCalendarEvent = ce;
+                    SetLyncStatusWithGUIInfo();                    
 
                     //wait until the end of meeting to continue to check again
-                    statusTextBlock.Text = "Status is Set, Waiting Until " + ce.Ends + " To Check Again";
-                    currentCalendarEvent = ce;
+                    statusTextBlock.Text = "Status is Set, Waiting Until " + ce.Ends + " To Check Again";                    
                     await Task.Delay(ce.Ends - DateTime.Now, tokenSource.Token);
 
                     currentCalendarEvent = null;
                     
                     //Reset status after meeting
-                    SetLyncStatus(originalMessage, originalLocation, ContactAvailability.None);
+                    ResetLyncStatus();
                 }
             }
             catch (TaskCanceledException)
             {
                 statusTextBlock.Text = "Syncing Stopped";
-                //don't do anything
+                ResetUIControls(); 
             }
             catch (Exception ex)
             {
@@ -211,9 +223,8 @@ namespace LotusLyncer
 
         private void buttonStopSync_Click(object sender, RoutedEventArgs e)
         {
-            //kill running timer
             currentCalendarEvent = null;
-            syncingStatus = false;
+            currentlySyncing = false;
             tokenSource.Cancel();
             ResetUIControls();           
         }
@@ -250,7 +261,6 @@ namespace LotusLyncer
             {
                 //Listen for events of changes of the contact's information
                 lyncClient.Self.Contact.ContactInformationChanged += new EventHandler<ContactInformationChangedEventArgs>(SelfContact_ContactInformationChanged);                
-                SetLocation();
                 SetPersonalNote();
             }
         }
@@ -272,26 +282,11 @@ namespace LotusLyncer
                 statusTextBlock.Text = "ERROR: " + ex.Message;
             }
 
+            //check if the user is changing this outside of syncing, if so lets reset the original message
+            if (!InMeeting())
+                originalMessage = text;
+
             messageTextBlock.Text = text;
-        }
-
-        /// <summary>
-        /// Gets the location from Lync and sets in UI, Lync => App
-        /// </summary>
-        private void SetLocation()
-        {
-            string text = string.Empty;
-            try
-            {
-                text = lyncClient.Self.Contact.GetContactInformation(ContactInformationType.LocationName)
-                              as string;
-            }
-            catch (Exception ex)
-            {
-                statusTextBlock.Text = "ERROR: " + ex.Message;
-            }
-
-            locationTextBlock.Text = text;
         }
 
         /// <summary>
@@ -309,11 +304,6 @@ namespace LotusLyncer
                     //Use the current dispatcher to update the contact's personal note in the user interface.
                     dispatcher.BeginInvoke(new Action(SetPersonalNote));
                 }
-                if (e.ChangedContactInformation.Contains(ContactInformationType.LocationName))
-                {
-                    //Use the current dispatcher to update the contact's name in the user interface.
-                    dispatcher.BeginInvoke(new Action(SetLocation));
-                }
             }
         }
 
@@ -324,11 +314,18 @@ namespace LotusLyncer
 
         #region Set Lync Status
         /// <summary>
-        /// Reset Lync with original info before syncing
+        /// Reset Lync with original info before syncing started
         /// </summary>
         private void ResetLyncStatus()
         {
-            SetLyncStatus(originalMessage, originalLocation, ContactAvailability.None);
+            SetLyncStatus(originalMessage, String.Empty, ContactAvailability.None);
+        }
+
+        private void SetLyncStatusWithGUIInfo()
+        {
+            string message = notesTitleCheckBox.IsChecked.Value ? currentCalendarEvent.Title : messageTextBox.Text;
+            string location = notesLocationCheckBox.IsChecked.Value ? currentCalendarEvent.Location : locationTextBox.Text;
+            SetLyncStatus(message, location, (ContactAvailability)availabilityComboBox.SelectedItem);
         }
 
         /// <summary>
@@ -341,8 +338,10 @@ namespace LotusLyncer
         {
             Dictionary<PublishableContactInformationType, object> newInformation = new Dictionary<PublishableContactInformationType, object>();
 
-            newInformation.Add(PublishableContactInformationType.PersonalNote, message);
-            newInformation.Add(PublishableContactInformationType.LocationName, location);
+            if (location != String.Empty)
+                newInformation.Add(PublishableContactInformationType.PersonalNote, message + " - " + location);
+            else
+                newInformation.Add(PublishableContactInformationType.PersonalNote, message);
             newInformation.Add(PublishableContactInformationType.Availability, availability);
 
             try
@@ -418,86 +417,55 @@ namespace LotusLyncer
         }
         #endregion
 
-        //TODO: add event listener for location and message text boxes, and delay time
-
         #region UI Control Change Event Listeners
         private void notesTitleCheckBox_Changed(object sender, RoutedEventArgs e)
         {
             if (((CheckBox)sender).IsChecked.Value)
-            {
-                messageTextBox.IsEnabled = false;
-                if (CanUpdateStatus)
-                {
-                    SetLyncMessage(currentCalendarEvent.Title);
-                }
-            }
+                messageTextBox.IsEnabled = false;                
             else
-            {
                 messageTextBox.IsEnabled = true;
-                if (CanUpdateStatus)
-                {
-                    SetLyncMessage(messageTextBox.Text);
-                }
-            }            
+
+            if (InMeeting())
+                SetLyncStatusWithGUIInfo();
         }
         
 
         private void notesLocationCheckBox_Changed(object sender, RoutedEventArgs e)
         {            
             if (((CheckBox)sender).IsChecked.Value)
-            {
                 locationTextBox.IsEnabled = false;
-                if (CanUpdateStatus)
-                {
-                    SetLyncLocation(currentCalendarEvent.Location);
-                }
-            }
             else
-            {
                 locationTextBox.IsEnabled = true;
-                if (CanUpdateStatus)
-                {
-                    SetLyncLocation(locationTextBox.Text);
-                }
-            }
+
+            if (InMeeting())
+                SetLyncStatusWithGUIInfo();
         }
 
         private void messageTextBox_TextChanged(object sender, TextChangedEventArgs e)
         {
-            if (!CanUpdateStatus) return;
+            if (!InMeeting()) return;
 
-            if (!notesTitleCheckBox.IsChecked.Value )
-            {
-                SetLyncMessage(messageTextBox.Text);
-            }
+            SetLyncStatusWithGUIInfo();
         }
 
         private void locationTextBox_TextChanged(object sender, TextChangedEventArgs e)
         {
-            if (!CanUpdateStatus) return;
+            if (!InMeeting()) return;
 
-            if (!notesLocationCheckBox.IsChecked.Value)
-            {
-                SetLyncLocation(locationTextBox.Text);
-            }
+            SetLyncStatusWithGUIInfo();
         }
 
         private void availabilityComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
-            if (!CanUpdateStatus) return;
+            if (!InMeeting()) return;
             SetLyncAvailability((ContactAvailability)availabilityComboBox.SelectedItem);
         }
         #endregion
 
-        private void TaskbarIcon_MouseClick(object sender, MouseButtonEventArgs e)
-        {
-            this.WindowState = WindowState.Normal;
-        }
-
         private void TaskbarIcon_MouseClick(object sender, RoutedEventArgs e)
         {
             this.WindowState = WindowState.Normal;
-        }
+        }        
 
     }
 }
